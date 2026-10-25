@@ -14,6 +14,6 @@ def save_data(data):
 def index():
   data = load_data()
   return render_template('index.html', data=data)
-if _name_ == '_main_':
+if __name__ == '__main__':
   app.run()
     
