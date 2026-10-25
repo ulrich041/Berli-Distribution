@@ -3,10 +3,10 @@ import json, os
 app=Flask(_name_)
 DATA_FILE= 'data.json'
 def load_data():
-  if os.path.exsits(DATA_FILE):
-    with open(DATA_FILE, 'r') as f:
-      return json.load(f)
-   return {"stocks":[]}
+    if os.path.exsits(DATA_FILE):
+        with open(DATA_FILE, 'r') as f:
+            return json.load(f)
+    return {"stocks":[]}
 def save_data(data):
   with open(DATA_FILE, 'w') as f:
     json.dump(data, f, indent=2)
