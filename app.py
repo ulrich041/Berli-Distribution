@@ -9,7 +9,7 @@ DB = 'berli.db'
 
 USERS = {
   'patron': {'pass':'berli2024','role':'patron'},
-  'caisse': {'pass':'caisse123';'role':'caissier'},
+  'caisse': {'pass':'caisse123','role':'caissier'},
   'stock':{'pass':'stock123','role':'stock'}
 }
   
