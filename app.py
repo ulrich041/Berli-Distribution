@@ -1,6 +1,6 @@
 from flask import Flask, render_template
 import json, os
-app=Flask(_name_)
+app = Flask(_name_)
 DATA_FILE= 'data.json'
 def load_data():
     if os.path.exsits(DATA_FILE):
