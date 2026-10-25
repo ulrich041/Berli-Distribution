@@ -1,6 +1,6 @@
-from flask import Flask, render_template, request, redirect, jsonify
-import json, os
-from datetime import datetime
+from flask import Flask, render_template, request
+import json
+import os
 
 app = Flask(__name__)
 DATA_FILE = 'data.json'
@@ -20,25 +20,5 @@ def index(): 
   data = load_data()  
   return render_template('index.html', data=data)
   
-@app.route('/add_stock', methods=['POST'])
-def add_stock(): 
-  data = load_data()  
-  data['stocks'].append({  
-    "produit": request.form.get('produit'),     
-    "quantite": request.form.get('quantite'),     
-    "prix": request.form.get('prix'),       
-    "date": datetime.now().strftime("%d/%m/%Y %H:%M")    })  
-  save_data(data) 
-  return redirect('/')
-@app.route('/add_vente', methods=['POST'])
-def add_vente():  
-  data = load_data()  
-  data['ventes'].append({    
-    "produit": request.form.get('produit'),    
-    "quantite": request.form.get('quantite'),    
-    "client": request.form.get('client'),     
-    "date": datetime.now().strftime("%d/%m/%Y %H:%M")    }) 
-  save_data(data)  
-  return redirect('/')
 if __name__ == '__main__':
   app.run(debug=True)
