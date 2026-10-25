@@ -1,26 +1,37 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Berli Distribution</title>
-    <style>
-      body{font-family:Arial;background:#f5f5f5;padding:20px;margin:0}
-      .card{background:white;padding:20px;border-radius:12px;max-width:500px;margin:auto;box-shadow:0 2px 10px #ccc}
-      input{width:100%;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #ddd;box-sizing:border-box}
-      button{width:100%;padding:14px;background:#25D366;color:white;border:none;border-radius:8px;font-size:16px;font-weight:bold}
-      h1{text-align:center;color:#333}
-      p{text-align:center;color:#666}
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h1>BERLI DISTRIBUTION</h1>
-      <p>Commandez vos produits - Paiement à la livraison à Lomé</p>
-      <input placeholder="Votre nom">
-      <input placeholder="Votre numéro WhatsApp">
-      <input placeholder="Produit voulu">
-      <button onclick="alert('Commande envoyée à Berli sur WhatsApp !')">Commander sur WhatsApp</button>
-    </div>
-  </body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Berli Distribution</title>
+<style>
+body{font-family:Arial;background:#f5f5f5;padding:20px;margin:0}
+.card{background:white;padding:20px;border-radius:12px;max-width:500px;margin:auto;box-shadow:0 2px 10px #ccc}
+input{width:100%;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #ddd;box-sizing:border-box}
+button{width:100%;padding:14px;background:#25D366;color:white;border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer}
+h1{text-align:center;color:#333;margin-bottom:5px}
+p{text-align:center;color:#666}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>BERLI DISTRIBUTION</h1>
+<p>Commandez vos produits - Paiement à la livraison à Lomé</p>
+<input id="nom" placeholder="Votre nom">
+<input id="tel" placeholder="Votre numéro WhatsApp">
+<input id="produit" placeholder="Produit voulu">
+<button onclick="commander()">Commander sur WhatsApp</button>
+</div>
+
+<script>
+function commander(){
+  var nom = document.getElementById('nom').value;
+  var tel = document.getElementById('tel').value;
+  var produit = document.getElementById('produit').value;
+  if(nom=='' || produit==''){ alert('Remplis ton nom et le produit !'); return; }
+  var msg = "Bonjour Berli Distribution !%0AJe veux commander :%0A- Nom: "+nom+"%0A- Mon WhatsApp: "+tel+"%0A- Produit: "+produit+"%0A%0ALivraison à Lomé.";
+  window.open("https://wa.me/22892424510?text="+msg, "_blank");
+}
+</script>
+</body>
 </html>
