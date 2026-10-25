@@ -1,1 +1,29 @@
-
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Berli Gestion PRO</title>
+  <style>body{font-family:Arial;padding:12px;background:#f0f2f5} .card{background:#fff;padding:15px;border-radius:10px;margin-bottom:12px} input,select,button{width:100%;padding:12px;margin:5px 0;border-radius:8px;border:1px solid #ddd;box-sizing:border-box} button{background:#111;color:#fff;font-weight:bold} .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px} .benef{color:green;font-weight:bold} .danger{color:red} table{width:100%;font-size:14px} td,th{padding:6px;border-bottom:1px solid #eee}</style>
+</head><body>
+  <h2>BERLI PRO - Boissons</h2>
+  <div class="grid"><div class="card">CA Jour: <b id="caJour">0</b>F<br><span class="benef">Bénéf Jour: <b id="benJour">0</b>F</span></div><div class="card">CA Total: <b id="caTot">0</b>F<br><span class="benef">Bénéf Total: <b id="benTot">0</b>F</span></div></div>
+  <div class="card"><h3>Vendre</h3>
+    <select id="prodSel"></select>
+    <div class="grid"><select id="typeVente"><option value="Detail">Détail (bouteille)</option><option value="Gros">En Gros (casier)</option></select><input id="qte" type="number" value="1" min="1"></div>
+    <input id="remise" type="number" value="0" placeholder="Remise FCFA">
+    <input id="client" placeholder="Client">
+    <select id="type"><option value="Cash">Cash</option><option value="Credit">Crédit</option></select>
+    <button onclick="vendre()">VENDRE + TICKET</button><div id="ticket"></div></div>
+  <div class="card"><h3>Stock (en bouteilles)</h3><table id="stockTab"></table></div>
+  <div class="card"><h3>Crédits</h3><div id="credits"></div></div>
+  <script>
+    async function load(){
+      let r=await fetch('/api/produits'); let prods=await r.json(); let sel=document.getElementById('prodSel'); sel.innerHTML=''; let tab=document.getElementById('stockTab'); tab.innerHTML='<tr><th>Boisson</th><th>Stock</th><th>Détail</th><th>Gros</th></tr>';
+      prods.forEach(p=>{sel.innerHTML+=`<option value="${p.nom}">${p.nom} (${p.stock} btl)</option>`; tab.innerHTML+=`<tr><td>${p.nom}</td><td class="${p.stock<12?'danger':''}">${p.stock}</td><td>${p.prix_detail}F</td><td>${p.prix_gros}F / ${p.qte_gros}</td></tr>`});
+      let d=await fetch('/api/dashboard'); let dash=await d.json(); document.getElementById('caJour').innerText=dash.jour_ca; document.getElementById('benJour').innerText=dash.jour_benef; document.getElementById('caTot').innerText=dash.total_ca; document.getElementById('benTot').innerText=dash.total_benef; document.getElementById('credits').innerHTML=dash.credits.map(c=>`${c[0]} doit ${c[1]}F`).join('<br>')||'Aucun';
+    }
+    async function vendre(){
+      let data={produit:document.getElementById('prodSel').value.split(' (')[0], qte:document.getElementById('qte').value, type_vente:document.getElementById('typeVente').value, remise:document.getElementById('remise').value, client:document.getElementById('client').value, type:document.getElementById('type').value};
+      let r=await fetch('/api/vendre',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); let res=await r.json(); if(res.error){alert(res.error);return;} 
+      document.getElementById('ticket').innerHTML=` ${res.ticket}<br>Bénéfice: ${res.benefice}F<br><button onclick="window.print()">Imprimer Ticket</button>`; load();
+    }
+    load();
+  </script></body></html>
