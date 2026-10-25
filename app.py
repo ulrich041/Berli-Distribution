@@ -7,10 +7,10 @@ app = Flask(__name__)
 app.secret_key = 'berli_secret_2024_togo'
 DB = 'berli.db'
 
-USERS = {
+USERS = { (
   'patron': {'pass': 'berli2024', 'role': 'patron'},  
   'caisse': {'pass': 'caisse123', 'role': 'caissier'},   
-  'stock': {'pass': 'stock123', 'role': 'stock'}
+  'stock': {'pass': 'stock123', 'role': 'stock'} )
 }
 
 def init_db(): 
