@@ -85,6 +85,7 @@ def dash():
     <a href="/inventaire" class="btn btn-purple">⚖️ INVENTAIRE</a>
     <a href="/movements" class="btn">📈 MOUVEMENTS</a>
     <a href="/debts" class="btn btn-red">📒 DETTES</a>
+    <a href="/products" class="btn btn-green">➕ AJOUTER ARTICLE</a>
     <a href="/print_stock" class="btn">🖨️ IMPRIMER STOCK</a>
     <a href="/export_stock" class="btn btn-blue">📥 EXPORT EXCEL</a>
     </div>
@@ -289,6 +290,75 @@ def pay(did):
     db.close()
     return render(f"<h2>Paiement {debt['client']} - Reste {debt['remaining']}F</h2><div class='card'><form method='POST'><input name='amount' type='number' required><button class='btn btn-green'>Payer</button></form></div>", session['name'])
 
+@app.route('/products', methods=['GET','POST'])
+def manage_products():
+    if 'user' not in session:
+        return redirect('/login')
+    db = get_db()
+    if request.method == 'POST':
+        name = request.form.get('name','').strip().upper()
+        pu = int(request.form.get('pu') or 0)
+        pc = int(request.form.get('pc') or 0)
+        pc10 = int(request.form.get('pc10') or pc)
+        cost = int(request.form.get('cost') or 0)
+        nb = int(request.form.get('nb') or 24)
+        stock = float(request.form.get('stock') or 0)
+        if name:
+            try:
+                db.execute('INSERT INTO products (name, pu, pc, pc10, cost_pc, nb, stock) VALUES (?,?,?,?,?,?,?)',
+                           [name, pu, pc, pc10, cost, nb, stock])
+                db.commit()
+            except:
+                db.execute('UPDATE products SET pu=?, pc=?, pc10=?, cost_pc=?, nb=?, stock=? WHERE name=?',
+                           [pu, pc, pc10, cost, nb, stock, name])
+                db.commit()
+        db.close()
+        return redirect('/products')
+    
+    prods = db.execute('SELECT * FROM products ORDER BY name').fetchall()
+    db.close()
+    rows = "".join([f"<tr><td>{p['name']}</td><td>{p['pu']}F</td><td>{p['pc']}F</td><td>{p['stock']}</td><td><a href='/delete_product/{p['id']}' class='btn btn-red' onclick='return confirm(\"Supprimer {p['name']} ?\")'>🗑️</a></td></tr>" for p in prods])
+    
+    return render(f"""
+    <h2>📦 Gestion des Articles - Ajout Facile</h2>
+    <a href="/" class="btn">← Dashboard</a> <a href="/stock" class="btn">Stock</a>
+    
+    <div class="card" style="border:2px solid #16a34a">
+    <h3>➕ Ajouter un Nouvel Article (toi-même)</h3>
+    <form method="POST">
+    <label>Nom Article * (ex: CHAPMAN 33CL)</label><input name="name" placeholder="Nom en MAJUSCULE" required>
+    <div style="display:flex; gap:10px">
+    <div style="flex:1"><label>PU Détail (1 bouteille)</label><input name="pu" type="number" placeholder="500" required></div>
+    <div style="flex:1"><label>PC Casier (1 casier)</label><input name="pc" type="number" placeholder="12000" required></div>
+    <div style="flex:1"><label>PC10 (10 casiers+)</label><input name="pc10" type="number" placeholder="11000"></div>
+    </div>
+    <div style="display:flex; gap:10px">
+    <div style="flex:1"><label>Coût Achat Casier</label><input name="cost" type="number" placeholder="9000"></div>
+    <div style="flex:1"><label>Nb Btls / Casier</label><input name="nb" type="number" value="24"></div>
+    <div style="flex:1"><label>Stock Départ Casiers</label><input name="stock" type="number" step="0.5" value="0"></div>
+    </div>
+    <button class="btn btn-green" style="width:100%; padding:15px; font-size:16px">✅ Ajouter l'Article</button>
+    </form>
+    <p style="font-size:12px; color:gray">Astuce: Si l'article existe déjà, ça met à jour ses prix.</p>
+    </div>
+
+    <div class="card">
+    <h3>Liste de tes Articles ({len(prods)} articles)</h3>
+    <table><tr><th>Nom</th><th>PU</th><th>PC</th><th>Stock</th><th>Action</th></tr>{rows}</table>
+    </div>
+    """, session['name'])
+
+@app.route('/delete_product/<int:pid>')
+def delete_product(pid):
+    if 'user' not in session:
+        return redirect('/login')
+    if session.get('user') != 'patron':
+        return "Seul le patron peut supprimer"
+    db = get_db()
+    db.execute('DELETE FROM products WHERE id=?', [pid])
+    db.commit()
+    db.close()
+    return redirect('/products')
 if __name__ == '__main__':
     port=int(os.environ.get("PORT",5000))
     app.run(host='0.0.0.0', port=port)
