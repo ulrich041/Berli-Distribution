@@ -205,3 +205,285 @@ def caisse():
   {% endif %}   
   </div>   
   """, prods=prods, cart=cart, tot=tot, ben=ben)
+@app.route('/add_to_cart', methods=['POST'])
+def add_to_cart():  
+  if 'user' not in session:  
+    return redirect('/login')  
+  raw = request.form.get('product','') 
+  name = raw.split('|')[0].strip() 
+  typ = request.form.get('type')  
+  qty = float(request.form.get('qty',1))  
+  c = get_db()  
+  p = c.execute('SELECT * FROM products WHERE name=?', (name,)).fetchone()  
+  c.close()  
+  if p:    
+     base = p['pu'] if typ=='unite' else (p['pc'] if typ=='casier' else p['pc10'])    
+     cost_unit = p['cost_pc']/p['nb'] if typ=='unite' else p['cost_pc']     
+     pf_raw = request.form.get('prix_final','').strip()    
+     pu_final = int(pf_raw) if pf_raw else base      
+     total = int(pu_final * qty)   
+     benefit = int((pu_final - cost_unit) * qty) 
+     cart = session.get('cart', [])     
+     cart.append({'product':name,'qty':qty,'type':typ,'nb':p['nb'],'pu_base':base,'pu_final':pu_final,'total':total,'cost_unit':cost_unit,'benefit':benefit})     
+     session['cart'] = cart  
+   return redirect('/caisse')
+
+@app.route('/remove_cart/<int:i>')
+def remove_cart(i): 
+  cart = session.get('cart', [])  
+  if 0 <= i < len(cart):   
+    cart.pop(i)     
+    session['cart'] = cart  
+  return redirect('/caisse')
+
+@app.route('/clear_cart')
+def clear_cart():   
+  session['cart'] = []  
+  return redirect('/caisse')
+
+@app.route('/validate_cart', methods=['POST'])
+def validate_cart(): 
+  if 'user' not in session: 
+      return redirect('/login')   
+  cart = session.get('cart', []) 
+  if not cart:       
+    return redirect('/caisse')  
+  is_credit = request.form.get('is_credit') == '1' 
+  client = request.form.get('client_name','').strip().upper()  
+  phone = request.form.get('client_phone','').strip() 
+  total = sum([x['total'] for x in cart])  
+  now_date = datetime.now().strftime('%Y-%m-%d')  
+  now_heure = datetime.now().strftime('%H:%M')  
+  c = get_db()  
+  if is_credit and client:  
+    c.execute('INSERT INTO debts (client,phone,total,paid,remaining,date,status) VALUES (?,?,?,?,?,?,?)', (client,phone,total,0,total,now_date+' '+now_heure,'EN COURS'))   
+    for it in cart:      
+      deduit = it['qty']/it['nb'] if it['type']=='unite' else it['qty']   
+      before = c.execute('SELECT stock FROM products WHERE name=?', (it['product'],)).fetchone()[0]   
+      c.execute('UPDATE products SET stock=stock-? WHERE name=?', (deduit, it['product']))     
+      after = before - deduit     
+      c.execute('INSERT INTO stock_moves (product,type,qty,stock_before,stock_after,reason,date) VALUES (?,?,?,?,?,?,?)', (it['product'],'SORTIE',deduit,before,after,f'Vente credit {client}',now_date))     
+      c.execute('INSERT INTO sales (product,qty,nb,type,pu_base,pu_final,total,cost_total,benefit,seller,client,payment_type,date,heure) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',        
+           (it['product'],it['qty'],it['nb'],it['type'],it['pu_base'],it['pu_final'],it['total'],int(it['cost_unit']*it['qty']),it['benefit'],session['user'],client,'CREDIT',now_date,now_heure))  
+  else:    
+    for it in cart:      
+      deduit = it['qty']/it['nb'] if it['type']=='unite' else it['qty']   
+      before = c.execute('SELECT stock FROM products WHERE name=?', (it['product'],)).fetchone()[0]        
+      c.execute('UPDATE products SET stock=stock-? WHERE name=?', (deduit, it['product']))      
+      after = before - deduit     
+      c.execute('INSERT INTO stock_moves (product,type,qty,stock_before,stock_after,reason,date) VALUES (?,?,?,?,?,?,?)', (it['product'],'SORTIE',deduit,before,after,'Vente cash',now_date))      
+      c.execute('INSERT INTO sales (product,qty,nb,type,pu_base,pu_final,total,cost_total,benefit,seller,client,payment_type,date,heure) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',      
+            (it['product'],it['qty'],it['nb'],it['type'],it['pu_base'],it['pu_final'],it['total'],int(it['cost_unit']*it['qty']),it['benefit'],session['user'],'','CASH',now_date,now_heure))  
+   c.commit()  
+   c.close()  
+   session['cart'] = []    
+      return redirect('/dettes' if is_credit else '/dashboard')
+@app.route('/dettes')
+def dettes(): 
+  if 'user' not in session:   
+    return redirect('/login')  
+    q = request.args.get('q','').strip().upper() 
+    c = get_db()   
+    if q:      
+       debts = c.execute('SELECT * FROM debts WHERE client LIKE ? ORDER BY remaining DESC', ('%'+q+'%',)).fetchall() 
+    else:     
+      debts = c.execute('SELECT * FROM debts WHERE remaining>0 ORDER BY id DESC').fetchall() 
+      total = c.execute('SELECT COALESCE(SUM(remaining),0) FROM debts WHERE remaining>0').fetchone()[0]   
+      total_paid = c.execute('SELECT COALESCE(SUM(paid),0) FROM debts').fetchone()[0] 
+      c.close()    
+      return render_template_string(BASE_STYLE + """   
+      <div class='top'><a href='/accueil' style='text-decoration:none;color:#0f172a'>←</a><div><div>Dettes</div><div style='font-size:10px;color:#64748b;font-weight:400'>Gestion des Créances - {{total}}F à encaisser</div></div><div style='font-size:11px'>{{name}}</div></div>
+      <div style='padding:12px'>  
+      <div class='card' style='margin:0'><b>Gestion des Créances</b><div style='font-size:12px;color:#64748b;margin-top:4px'>Suivi des paiements dus par vos clients - Total: <b style='color:#f97316'>{{total}}F</b> | Déjà payé: {{total_paid}}F</div>  
+      <form style='display:flex;gap:8px;margin-top:12px' method='GET'><input name='q' value='{{q}}' class='search' placeholder='Rechercher un client endetté... (ex: FL O PARC)'><button class='btn btn-dark'>Rechercher</button></form>  
+      </div>   
+      {% for d in debts %} 
+      <div class='card' style='margin:12px 0 0 0'>  
+      <div style='display:flex;justify-content:space-between;align-items:center'>  
+      <div style='display:flex;align-items:center;gap:12px'><div style='width:38px;height:38px;background:#eef2ff;border-radius:50%;display:flex;justify-content:center;align-items:center;font-weight:800;color:#6366f1'>{{d['client'][0]}}</div><div><b style='font-size:13px'>{{d['client']}}</b><br><small style='color:#64748b'>{{d['date']}} • {{d['phone']}} • Total {{d['total']}}F</small></div></div> 
+      <div style='text-align:right'><b style='color:#f97316'>{{d['remaining']}}F</b><br><small style='color:#64748b'>Reste / Payé {{d['paid']}}F</small><br><span class='badge badge-orange'>{{d['status']}}</span></div>  
+      </div>   
+      <form method='POST' action='/pay_debt/{{d["id"]}}' style='display:flex;gap:8px;margin-top:12px;background:#fff7ed;padding:10px;border-radius:10px;border:1px solid #fed7aa'> 
+      <input name='amount' type='number' class='input' style='margin:0' placeholder='Montant payé' max='{{d["remaining"]}}' required>  
+      <button class='btn btn-orange'>Régler</button>  
+      </form>  
+      </div>   
+      {% endfor %}  
+      {% if not debts %}<div class='card' style='text-align:center;padding:30px;color:#64748b'>Aucune dette {% if q %}pour "{{q}}"{% endif %}<br><small>Toutes les créances sont réglées !</small></div>{% endif %} 
+      </div> 
+      """, debts=debts, total=total, total_paid=total_paid, q=q, name=session.get('name'))
+      
+@app.route('/pay_debt/<int:debt_id>', methods=['POST'])
+def pay_debt(debt_id):   
+  if 'user' not in session:   
+    return redirect('/login') 
+  amount = int(request.form.get('amount',0))  
+  c = get_db()  
+  d = c.execute('SELECT * FROM debts WHERE id=?', (debt_id,)).fetchone() 
+  if d and amount>0 and amount<=d['remaining']:     
+    new_paid = d['paid']+amount   
+    new_rem = d['remaining']-amount   
+    status = 'SOLDE' if new_rem==0 else 'EN COURS'    
+    c.execute('UPDATE debts SET paid=?, remaining=?, status=? WHERE id=?', (new_paid,new_rem,status,debt_id))    
+    c.execute('INSERT INTO payments (debt_id,client,amount,date,seller) VALUES (?,?,?,?,?)', (debt_id,d['client'],amount,datetime.now().strftime('%Y-%m-%d %H:%M'),session['user']))    
+    c.commit()  
+  c.close() 
+  return redirect('/dettes')
+    
+@app.route('/stock')
+def stock_page():  
+  if 'user' not in session:    
+      return redirect('/login')  
+  c = get_db()   
+  prods = c.execute('SELECT * FROM products ORDER BY name').fetchall()  
+  c.close()  
+  return render_template_string(BASE_STYLE + """  
+  <div class='top'><a href='/accueil' style='text-decoration:none'>← Accueil</a><b>Berli Distribution - Stock</b><div style='display:flex;gap:6px'><a href='/stock_moves' style='text-decoration:none;font-size:11px' class='btn btn-dark'>Mouvements</a><a href='/export_stock' style='text-decoration:none;font-size:11px' class='btn btn-green'> Excel</a></div></div> 
+  <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px'>  
+  <div class='card' style='margin:0;border:2px solid #16a34a'><b style='color:#16a34a'> ENTRÉE STOCK</b><br><small style='color:#64748b'>Livraison fournisseur</small> 
+  <form method='POST' action='/stock_entry' style='margin-top:10px'> 
+  <select name='entry_product' class='input' required>{% for p in prods %}<option>{{p['name']}} - Actuel: {{p['stock']}} casiers</option>{% endfor %}</select>  
+  <div style='display:flex;gap:6px;margin-top:8px'><input name='entry_qty' type='number' step='0.1' placeholder='Qté casiers' class='input' style='margin:0' required><input name='entry_reason' class='input' style='margin:0' value='Livraison fournisseur'></div>  
+  <button class='btn btn-green' style='width:100%;margin-top:8px'>Ajouter Entrée</button>  
+  </form></div>  
+  <div class='card' style='margin:0;border:2px solid #f97316'><b style='color:#f97316'> INVENTAIRE / AJUSTEMENT</b><br><small style='color:#64748b'>Casse, perte, inventaire réel</small>  
+  <form method='POST' action='/stock_adjust' style='margin-top:10px'>  
+  <select name='adj_product' class='input' required>{% for p in prods %}<option>{{p['name']}} - Actuel: {{p['stock']}}</option>{% endfor %}</select>
+  <div style='display:flex;gap:6px;margin-top:8px'><input name='adj_stock' type='number' step='0.1' placeholder='Nouveau stock réel' class='input' style='margin:0' required><input name='adj_reason' class='input' style='margin:0' value='Inventaire'></div>   
+  <button class='btn btn-orange' style='width:100%;margin-top:8px'>Ajuster Stock</button> 
+  </form></div>  
+  </div>   
+  <div class='card'> 
+  <b>Ajouter / Modifier Produit</b><br><small style='color:#64748b'>Tous les paramètres de vente</small> 
+  <form method='POST' action='/add_product'>  
+  <div class='grid2'> 
+  <div><label class='label'>NOM PRODUIT</label><input name='name' class='input' placeholder='Ex: Castel Pils' required></div>  
+  <div><label class='label'>CATÉGORIE</label><select name='category' class='input'><option>Bières</option><option>Boissons gazeuses</option><option>Eaux</option><option>Vins</option><option>Autres</option></select></div>  
+  </div>   
+  <div class='grid3'>  
+  <div><label class='label'>PU (Prix Unité)</label><input name='pu' type='number' class='input' required></div>  
+  <div><label class='label'>PC (Prix Casier)</label><input name='pc' type='number' class='input' required></div>  
+  <div><label class='label'>PC10 (Prix 10+ Casiers)</label><input name='pc10' type='number' class='input' required></div> 
+  </div>    
+  <div class='grid3'>    
+  <div><label class='label'>COÛT ACHAT CASIER</label><input name='cost_pc' type='number' class='input' required></div> 
+  <div><label class='label'>NB / CASIER (12/20/24)</label><input name='nb' type='number' value='24' class='input' required></div> 
+  <div><label class='label'>STOCK (en casiers)</label><input name='stock' type='number' step='0.1' class='input' required></div>   
+  </div>   
+  <div class='grid2'>  
+  <div><label class='label'>ALERTE STOCK FAIBLE</label><input name='alert' type='number' step='0.1' value='2' class='input'></div>  
+  <div><label class='label'>CODE BARRE</label><input name='barcode' class='input'></div> 
+  </div> 
+  <button class='btn btn-dark' style='width:100%;margin-top:14px'> ENREGISTRER PRODUIT</button>   
+  </form>  
+  </div>  
+  <div class='card'>
+  <b>Inventaire Complet</b> - {{prods|length}} produits  
+  <div style='overflow-x:auto;margin-top:10px'>  
+  <table><tr><th>Produit</th><th>Cat</th><th>Pu/Pc/Pc10</th><th>Coût</th><th>Nb</th><th>Sto</th><th>Bénéf</th><th>Statut</th></tr> 
+  {% for p in prods %}  
+  <tr><td><b>{{p['name']}}</b></td><td>{{p['category']}}</td><td>{{p['pu']}}/{{p['pc']}}/{{p['pc10']}}</td><td>{{p['cost_pc']}}F</td><td>{{p['nb']}}</td><td><b>{{p['stock']}}</b><br><small>{{(p['stock']*p['nb'])|int}} b</small></td><td style='color:green'>{{p['pu'] - (p['cost_pc']/p['nb'])|int}}F<br>{{p['pc']-p['cost_pc']}}F</td><td>{% if p['stock']<=p['alert_stock'] %}<span class='badge badge-red'>FAIBLE</span>{% else %}<span class='badge badge-green'>OK</span>{% endif %}</td></tr>  
+  {% endfor %}   
+  </table></div></div> 
+  """, prods=prods)
+  
+@app.route('/add_product', methods=['POST'])
+def add_product(): 
+  c = get_db()  
+  try:      
+     name = request.form.get('name','').strip()    
+     c.execute('INSERT OR REPLACE INTO products (name,category,pu,pc,pc10,cost_pc,nb,stock,alert_stock,barcode,date) VALUES (?,?,?,?,?,?,?,?,?,?,?)',    
+          (name, request.form.get('category','Bières'), int(request.form.get('pu',0)), int(request.form.get('pc',0)), int(request.form.get('pc10',0)),    
+          int(request.form.get('cost_pc',0)), int(request.form.get('nb',24)), float(request.form.get('stock',0)), float(request.form.get('alert',2)), request.form.get('barcode',''), datetime.now().strftime('%Y-%m-%d')))      
+     c.commit()  
+   except Exception as e:    
+      print(e)  
+   c.close()  
+   return redirect('/stock')
+
+@app.route('/stock_entry', methods=['POST'])
+def stock_entry():  
+if 'user' not in session:    
+return redirect('/login')  
+name = request.form.get('entry_product','').split(' - ')[0].strip() 
+qty = float(request.form.get('entry_qty',0))  
+reason = request.form.get('entry_reason','Livraison fournisseur')  
+c = get_db()  
+before = c.execute('SELECT stock FROM products WHERE name=?', (name,)).fetchone()  
+if before:    
+   before_val = before[0]    
+   after_val = before_val + qty   
+   c.execute('UPDATE products SET stock=? WHERE name=?', (after_val, name))  
+   c.execute('INSERT INTO stock_moves (product,type,qty,stock_before,stock_after,reason,date) VALUES (?,?,?,?,?,?,?)',          
+        (name,'ENTREE',qty,before_val,after_val,reason,datetime.now().strftime('%Y-%m-%d %H:%M'))) 
+   c.commit()  
+c.close()  
+return redirect('/stock')
+
+@app.route('/stock_adjust', methods=['POST'])
+def stock_adjust(): 
+if 'user' not in session: 
+return redirect('/login')  
+name = request.form.get('adj_product','').split(' - ')[0].strip() 
+new_stock = float(request.form.get('adj_stock',0))  
+reason = request.form.get('adj_reason','Inventaire')  
+c = get_db()  
+before = c.execute('SELECT stock FROM products WHERE name=?', (name,)).fetchone()  
+if before:    
+before_val = before[0]    
+c.execute('UPDATE products SET stock=? WHERE name=?', (new_stock, name))    
+c.execute('INSERT INTO stock_moves (product,type,qty,stock_before,stock_after,reason,date) VALUES (?,?,?,?,?,?,?)',  
+(name,'AJUSTEMENT',new_stock-before_val,before_val,new_stock,reason,datetime.now().strftime('%Y-%m-%d %H:%M')))    
+c.commit()  
+c.close()   
+return redirect('/stock')
+
+@app.route('/export_stock')
+def export_stock():  
+  if 'user' not in session:  
+return redirect('/login')  
+c = get_db() 
+prods = c.execute('SELECT * FROM products ORDER BY name').fetchall()  
+c.close()  
+csv_content = "Nom,Categorie,Pu,Pc,Pc10,Cout_Casier,Nb,Stock_Casiers,Stock_Bouteilles,Valeur_Stock,Benef_Unite,Benef_Casier,Alert,Barcode\n"  
+for p in prods:      
+stock_bout = int(p['stock']*p['nb'])     
+val_stock = int(p['stock']*p['cost_pc'])     
+ben_u = int(p['pu'] - p['cost_pc']/p['nb'])   
+ben_c = p['pc'] - p['cost_pc']      
+csv_content += f"{p['name']},{p['category']},{p['pu']},{p['pc']},{p['pc10']},{p['cost_pc']},{p['nb']},{p['stock']},{stock_bout},{val_stock},{ben_u},{ben_c},{p['alert_stock']},{p['barcode']}\n" 
+return Response(csv_content, mimetype='text/csv', headers={'Content-Disposition':'attachment; filename=stock_berli_distribution_'+datetime.now().strftime('%Y%m%d')+'.csv'})
+
+@app.route('/stock_moves')
+def stock_moves():  
+if 'user' not in session:   
+return redirect('/login') 
+c = get_db() 
+moves = c.execute('SELECT * FROM stock_moves ORDER BY id DESC LIMIT 200').fetchall()  
+c.close()  
+return render_template_string(BASE_STYLE + '''  
+<div class='top'><a href='/stock'>← Stock</a><b>Mouvements Stock</b><a href='/export_stock' style='text-decoration:none' class='btn btn-green' > Export Excel</a></div>  
+<div class='card'><table><tr><th>Date</th><th>Produit</th><th>Type</th><th>Qté</th><th>Avant</th><th>Après</th><th>Raison</th></tr>
+{% for m in moves %}<tr><td>{{m['date']}}</td><td><b>{{m['product']}}</b></td><td>{% if m['type']=='ENTREE' %}<span class='badge badge-green'>ENTRÉE</span>{% elif m['type']=='SORTIE' %}<span class='badge badge-red'>SORTIE</span>{% else %}<span class='badge badge-orange'>AJUST</span>{% endif %}</td><td>{{m['qty']}}</td><td>{{m['stock_before']}}</td><td>{{m['stock_after']}}</td><td>{{m['reason']}}</td></tr>{% endfor %} 
+</table></div>  
+''', moves=moves)
+    
+@app.route('/ventes')
+def ventes(): 
+  if 'user' not in session:    
+    return redirect('/login')   
+    c = get_db()  
+    sales = c.execute('SELECT * FROM sales ORDER BY id DESC LIMIT 150').fetchall()  
+    c.close()  
+    return render_template_string(BASE_STYLE + """  
+    <div class='top'><a href='/accueil'>← Accueil</a><b>Journal Ventes</b><a href='/dashboard'>Dashboard</a></div>  
+    <div class='card'><table><tr><th>Date</th><th>Produit Qté Type</th><th>Pu base/final</th><th>Total</th><th>Bénéf</th><th>Client/Paiement</th><th>Vendeur</th></tr>   
+    {% for s in sales %}<tr><td><small>{{s['date']}} {{s['heure']}}</small></td><td><b>{{s['product']}}</b><br>{{s['qty']}} x {{s['nb']}}/c {{s['type']}}</td><td>{{s['pu_base']}} → <b>{{s['pu_final']}}</b></td><td><b>{{s['total']}}F</b></td><td style='color:green'>{{s['benefit']}}F</td><td>{% if s['client'] %}{{s['client']}}<br><span class='badge badge-orange'>{{s['payment_type']}}</span>{% else %}<span class='badge badge-green'>CASH</span>{% endif %}</td><td>{{s['seller']}}</td></tr>{% endfor %} 
+    </table></div>    
+    """, sales=sales)
+@app.route('/logout')
+def logout():  
+  session.clear() 
+return redirect('/login')
+if __name__ == '__main__':  
+  app.run(host='0.0.0.0', port=int(os.environ.get('PORT',10000)))
