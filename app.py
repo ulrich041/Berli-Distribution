@@ -1,5 +1,5 @@
 import sqlite3
-from flask import Flask, render_template
+from flask import Flask
 import os
 
 DB_PATH = "berli.db"
@@ -19,22 +19,33 @@ def init_db():
     conn.close()
 
 app = Flask(__name__)
-app.secret_key = "berli-2026"
 init_db()
 
 @app.route('/')
 def dashboard():
-    db = get_db()
-    total_credits = db.execute("SELECT COALESCE(SUM(montant),0) as t FROM credits").fetchone()['t']
-    total_paye = db.execute("SELECT COALESCE(SUM(montant),0) as t FROM paiements").fetchone()['t']
-    total_debt = total_credits - total_paye
-    total_clients = db.execute("SELECT COUNT(*) as c FROM clients").fetchone()['c']
-    db.close()
-    return render_template('dashboard.html', total_debt=total_debt, total_credits=total_credits, total_clients=total_clients)
-
-@app.route('/login')
-def login():
-    return render_template('login.html')
+    try:
+        db = get_db()
+        total_credits = db.execute("SELECT COALESCE(SUM(montant),0) as t FROM credits").fetchone()['t']
+        total_paye = db.execute("SELECT COALESCE(SUM(montant),0) as t FROM paiements").fetchone()['t']
+        total_debt = total_credits - total_paye
+        total_clients = db.execute("SELECT COUNT(*) as c FROM clients").fetchone()['c']
+        db.close()
+        
+        return f"""
+        <html><head><style>
+        body{{font-family:Arial; background:#f4f4f4; padding:20px}}
+        .card{{background:white; padding:20px; border-radius:10px; margin:10px; display:inline-block; min-width:200px; box-shadow:0 2px 5px #ccc}}
+        h1{{color:#2c3e50}}
+        </style></head><body>
+        <h1>BERLI Distribution - LIVE ✅</h1>
+        <div class="card"><h3>Total Dettes</h3><h2>{total_debt} FCFA</h2></div>
+        <div class="card"><h3>Total Crédits</h3><h2>{total_credits} FCFA</h2></div>
+        <div class="card"><h3>Clients</h3><h2>{total_clients}</h2></div>
+        <p style="margin-top:20px">Félicitations Ulrich ! Ton app marche !</p>
+        </body></html>
+        """
+    except Exception as e:
+        return f"<h1>Erreur: {e}</h1>"
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
