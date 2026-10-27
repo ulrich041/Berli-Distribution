@@ -4,15 +4,11 @@ from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'berli-2026-final-complet'
-# Pour que les données ne s'effacent plus sur Render
-if os.path.exists('/data'):
-    DB = '/data/berli.db'  # En ligne : persistant
-else:
-    DB = 'berli.db'  # Sur ton Dell : local
+DB = '/data/berli.db' if os.path.exists('/data') else 'berli.db'
 
 USERS = {
     'patron': {'pass': 'berli2024', 'name': 'Patron Ulrich'},
-    'gerant': {'pass': 'gerant2024', 'name': 'Gérant'},
+    'gerant': {'pass': 'gerant2024', 'name': 'Gerant'},
     'caissier': {'pass': 'caisse2024', 'name': 'Caissier'}
 }
 
@@ -33,7 +29,6 @@ def init_db():
         try: c.execute('INSERT INTO products (name, pu, pc, pc10, cost_pc, nb, stock) VALUES (?,?,?,?,?,?,?)', d)
         except: pass
     conn.commit(); conn.close()
-
 init_db()
 
 BASE = """<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -60,7 +55,7 @@ def login():
         if u in USERS and USERS[u]['pass']==p:
             session['user']=u; session['name']=USERS[u]['name']; return redirect('/')
         err="Identifiants incorrects"
-    return render(f"<div class='card' style='max-width:400px; margin:40px auto'><h2>BERLI Login</h2><form method='POST'><input name='username' placeholder='patron / gerant / caissier' required><input name='password' type='password' placeholder='Mot de passe' required><button class='btn' style='width:100%'>Connexion</button></form><p style='color:red'>{err}</p><small>patron:berli2024 / gerant:gerant2024 / caissier:caisse2024</small></div>", "LOGIN")
+    return render(f"<div class='card' style='max-width:400px; margin:40px auto'><h2>BERLI Login</h2><form method='POST'><input name='username' placeholder='patron / gerant / caissier' required><input name='password' type='password' placeholder='Mot de passe' required><button class='btn' style='width:100%'>Connexion</button></form><p style='color:red'>{err}</p></div>", "LOGIN")
 
 @app.route('/logout')
 def logout():
@@ -83,17 +78,97 @@ def dash():
     <div class="card"><h3>📊 Ventes Jour</h3><h2>{st['s']} F</h2><small>Bénéf {st['b']} F</small></div>
     </div>
     <div class="card">
-    <a href="/sales" class="btn btn-green">💵 VENTE MULTIPLE + REÇU</a>
+    <a href="/sales" class="btn btn-green">💵 VENTE MULTIPLE</a>
     <a href="/stock" class="btn">📦 STOCK</a>
-    <a href="/add_stock" class="btn btn-blue">📥 ENTRÉE STOCK</a>
+    <a href="/entree_stock" class="btn btn-blue">📥 ENTRÉE STOCK</a>
     <a href="/inventaire" class="btn btn-purple">⚖️ INVENTAIRE</a>
     <a href="/movements" class="btn">📈 MOUVEMENTS</a>
     <a href="/debts" class="btn btn-red">📒 DETTES</a>
     <a href="/products" class="btn btn-green">➕ AJOUTER ARTICLE</a>
     <a href="/print_stock" class="btn">🖨️ IMPRIMER STOCK</a>
-    <a href="/export_stock" class="btn btn-blue">📥 EXPORT EXCEL</a>
     </div>
     """, session['name'])
+
+@app.route('/stock')
+def stock():
+    if 'user' not in session: return redirect('/login')
+    db=get_db(); prods=db.execute('SELECT * FROM products ORDER BY name').fetchall(); db.close()
+    rows="".join([f"<tr><td><b>{p['name']}</b></td><td>{p['stock']}</td><td>{p['pu']}F</td><td>{p['pc']}F</td><td>{p['pc10']}F</td><td>{p['stock']*p['pc']}F</td></tr>" for p in prods])
+    return render(f"""
+    <h2>Stock Existant BERLI</h2>
+    <div class="no-print"><a href="/" class="btn">← Dashboard</a><a href="/print_stock" class="btn">🖨️ Imprimer Stock</a></div>
+    <div class="card"><table><tr><th>Produit</th><th>Stock</th><th>PU</th><th>PC</th><th>PC10</th><th>Valeur</th></tr>{rows}</table></div>
+    """, session['name'])
+    @app.route('/print_stock')
+def print_stock():
+    if 'user' not in session: return redirect('/login')
+    db=get_db(); prods=db.execute('SELECT * FROM products ORDER BY name').fetchall(); db.close()
+    date=datetime.now().strftime('%Y-%m-%d %H:%M')
+    rows="".join([f"<tr><td>{p['name']}</td><td>{p['stock']}</td><td>{p['pu']}</td><td>{p['pc']}</td><td>{p['pc10']}</td><td>{p['cost_pc']}</td><td>{p['stock']*p['pc']}</td></tr>" for p in prods])
+    total=sum([p['stock']*p['pc'] for p in prods])
+    return render_template_string(f"""
+    <html><head><meta charset="utf-8"><title>Stock</title>
+    <style>body{{font-family:Arial; max-width:900px; margin:20px auto; padding:20px}} table{{width:100%; border-collapse:collapse}} th,td{{border:1px solid black; padding:6px; font-size:12px}} th{{background:#eee}}</style>
+    </head><body>
+    <h2 style="text-align:center">BERLI DISTRIBUTION - STOCK</h2>
+    <p>Date: {date} | {total} F</p>
+    <table><tr><th>Produit</th><th>Casiers</th><th>PU</th><th>PC</th><th>PC10</th><th>Cout</th><th>Valeur</th></tr>{rows}
+    <tr><td colspan="6"><b>TOTAL</b></td><td><b>{total} F</b></td></tr></table>
+    <button onclick="window.print()" style="padding:15px; width:100%; background:black; color:white">🖨️ IMPRIMER</button>
+    <a href="/stock">← Retour</a>
+    </body></html>
+    """)
+
+@app.route('/entree_stock', methods=['GET','POST'])
+@app.route('/add_stock', methods=['GET','POST'])
+def add_stock():
+    if 'user' not in session: return redirect('/login')
+    db=get_db(); prods=db.execute('SELECT * FROM products').fetchall()
+    if request.method=='POST':
+        name=request.form.get('product'); qty=float(request.form.get('qty',0)); reason=request.form.get('reason','Livraison fournisseur')
+        p=db.execute('SELECT * FROM products WHERE name=?',[name]).fetchone()
+        before=p['stock']; after=before+qty
+        db.execute('UPDATE products SET stock=? WHERE name=?',[after, name])
+        db.execute('INSERT INTO movements (product, type, qty, before, after, reason, date) VALUES (?,?,?,?,?,?,?)',[name,'ENTREE',qty,before,after,reason,datetime.now().strftime('%Y-%m-%d %H:%M')])
+        db.commit(); db.close(); return redirect('/stock')
+    opts="".join([f"<option>{p['name']}</option>" for p in prods]); db.close()
+    return render(f"""
+    <h2>📥 Entrée Stock - CORRIGÉ</h2><a href="/" class="btn">← Dashboard</a>
+    <div class="card"><form method="POST"><label>Produit</label><select name="product">{opts}</select>
+    <label>Qté Casiers</label><input name="qty" type="number" step="0.5" required>
+    <label>Raison</label><select name="reason"><option>Livraison fournisseur</option><option>Retour client</option><option>Ajustement</option></select>
+    <button class="btn btn-green">Valider Entrée Stock</button></form></div>
+    """, session['name'])
+
+@app.route('/inventaire', methods=['GET','POST'])
+def inventaire():
+    if 'user' not in session: return redirect('/login')
+    db=get_db()
+    if request.method=='POST':
+        for k in request.form:
+            if k.startswith('count_'):
+                pid=int(k.split('_')[1]); counted=float(request.form.get(k,0) or 0)
+                p=db.execute('SELECT * FROM products WHERE id=?',[pid]).fetchone()
+                if p:
+                    before=p['stock'] or 0; diff=counted-before
+                    if diff!=0:
+                        db.execute('UPDATE products SET stock=? WHERE id=?',[counted, pid])
+                        db.execute('INSERT INTO movements (product, type, qty, before, after, reason, date) VALUES (?,?,?,?,?,?,?)',[p['name'],'INVENTAIRE',diff,before,counted,f"Inventaire {diff:+}",datetime.now().strftime('%Y-%m-%d %H:%M')])
+        db.commit(); db.close(); return redirect('/print_stock')
+    prods=db.execute('SELECT * FROM products ORDER BY name').fetchall(); db.close()
+    rows="".join([f"<tr><td><b>{p['name']}</b><br><small>Theo: {p['stock']}</small></td><td><input name='count_{p['id']}' type='number' step='0.5' value='{p['stock']}' style='width:90px' required></td></tr>" for p in prods])
+    return render(f"""
+    <h2>⚖️ Inventaire</h2><a href="/" class="btn">← Dashboard</a>
+    <div class="card"><form method="POST"><table><tr><th>Produit</th><th>Compté</th></tr>{rows}</table>
+    <button class="btn btn-purple" style="width:100%; padding:15px">✅ Valider Inventaire</button></form></div>
+    """, session['name'])
+
+@app.route('/movements')
+def movements():
+    if 'user' not in session: return redirect('/login')
+    db=get_db(); moves=db.execute('SELECT * FROM movements ORDER BY id DESC LIMIT 100').fetchall(); db.close()
+    rows="".join([f"<tr><td>{m['date']}</td><td>{m['product']}</td><td>{m['type']}</td><td>{m['qty']:+}</td><td>{m['before']}→{m['after']}</td><td>{m['reason']}</td></tr>" for m in moves])
+    return render(f"""<h2>📈 Mouvements</h2><a href="/" class="btn">← Dashboard</a><div class="card"><table><tr><th>Date</th><th>Produit</th><th>Type</th><th>Qté</th><th>Avant→Après</th><th>Raison</th></tr>{rows if rows else '<tr><td colspan=6>Aucun</td></tr>'}</table></div>""", session['name'])
 
 @app.route('/sales', methods=['GET','POST'])
 def sales():
@@ -103,7 +178,6 @@ def sales():
         cart_json = request.form.get('cart_json','[]')
         cart = json.loads(cart_json)
         client = request.form.get('client','').strip()
-        is_credit = request.form.get('credit')=='on'
         group_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
         total_group = 0
         sale_ids = []
@@ -112,90 +186,116 @@ def sales():
             pr=db.execute('SELECT * FROM products WHERE name=?',[product]).fetchone()
             if not pr: continue
             if type_v=='detail':
-                total=int(qty*pr['pu']); benefit=int(qty*(pr['pu']-pr['cost_pc']//pr['nb'])); pu_final=pr['pu']; ded=qty/(pr['nb'] or 24)
+                total=int(qty*pr['pu']); pu_final=pr['pu']; ded=qty/(pr['nb'] or 24)
             elif type_v=='casier':
-                total=int(qty*pr['pc']); benefit=int(qty*(pr['pc']-pr['cost_pc'])); pu_final=pr['pc']; ded=qty
+                total=int(qty*pr['pc']); pu_final=pr['pc']; ded=qty
             else:
-                total=int(qty*pr['pc10']); benefit=int(qty*(pr['pc10']-pr['cost_pc'])); pu_final=pr['pc10']; ded=qty
+                total=int(qty*pr['pc10']); pu_final=pr['pc10']; ded=qty
             db.execute('UPDATE products SET stock=stock-? WHERE name=?',[ded, product])
-            cur=db.cursor(); cur.execute('INSERT INTO sales (product, qty, type, pu_final, total, benefit, seller, date, client, group_id) VALUES (?,?,?,?,?,?,?,?,?,?)',[product, qty, type_v, pu_final, total, benefit, session['name'], datetime.now().strftime('%Y-%m-%d %H:%M'), client, group_id])
+            cur=db.cursor(); cur.execute('INSERT INTO sales (product, qty, type, pu_final, total, benefit, seller, date, client, group_id) VALUES (?,?,?,?,?,?,?,?,?,?)',[product, qty, type_v, pu_final, total, pr['pc']-pr['cost_pc'], session['name'], datetime.now().strftime('%Y-%m-%d %H:%M'), client, group_id])
             sale_ids.append(cur.lastrowid)
             total_group += total
-        if is_credit and client and total_group>0:
-            db.execute('INSERT INTO debts (client, total, paid, remaining, date, phone) VALUES (?,?,?,?,?,?)',[client, total_group, 0, total_group, datetime.now().strftime('%Y-%m-%d %H:%M'), ''])
         db.commit(); db.close()
         if len(sale_ids)==1:
             return redirect(f'/ticket/{sale_ids[0]}')
         else:
-            ids_str=",".join(map(str,sale_ids))
-            return redirect(f'/ticket_multi/{ids_str}')
-
-    sales_list=db.execute('SELECT * FROM sales ORDER BY id DESC LIMIT 20').fetchall(); db.close()
-    opts="".join([f"<option value='{p['name']}' data-pu='{p['pu']}' data-pc='{p['pc']}' data-pc10='{p['pc10']}' data-stock='{p['stock']}'>{p['name']} (Stock: {p['stock']})</option>" for p in prods])
-    rows="".join([f"<tr><td>{s['date']}</td><td>{s['product']}</td><td>{s['qty']}</td><td>{s['total']}F</td><td>{s['client']}</td><td><a href='/ticket/{s['id']}' class='btn'>🧾 Reçu</a></td></tr>" for s in sales_list])
+            return redirect(f'/ticket_multi/{",".join(map(str,sale_ids))}')
+    opts="".join([f"<option value='{p['name']}' data-pu='{p['pu']}' data-pc='{p['pc']}' data-pc10='{p['pc10']}'>{p['name']} (Stock: {p['stock']})</option>" for p in prods])
+    sales_list=db.execute('SELECT * FROM sales ORDER BY id DESC LIMIT 15').fetchall(); db.close()
     return render(f"""
-    <h2>💵 Vente BERLI - Multi Articles</h2><a href="/" class="btn">← Dashboard</a>
+    <h2>💵 Vente Multi Articles - OK</h2><a href="/" class="btn">← Dashboard</a>
     <div class="card" style="border:2px solid #16a34a">
-    <h3>🛒 Nouveau Panier (Plusieurs Articles à la fois)</h3>
     <div style="display:flex; gap:8px; flex-wrap:wrap">
-        <div style="flex:2; min-width:200px"><label>Produit</label><select id="prod">{opts}</select></div>
-        <div style="flex:1"><label>Qté</label><input id="qty" type="number" step="0.5" value="1" min="0.5"></div>
-        <div style="flex:1"><label>Type</label><select id="type_v"><option value="detail">Bouteille Détail</option><option value="casier">Casier PACK</option><option value="casier10">10 Casiers+</option></select></div>
+        <div style="flex:2"><label>Produit</label><select id="prod">{opts}</select></div>
+        <div style="flex:1"><label>Qté</label><input id="qty" type="number" step="0.5" value="1"></div>
+        <div style="flex:1"><label>Type</label><select id="type_v"><option value="detail">Bouteille</option><option value="casier">Casier</option><option value="casier10">10 Casiers+</option></select></div>
     </div>
-    <button onclick="addToCart()" class="btn btn-green" style="width:100%; margin-top:10px; padding:12px">+ AJOUTER AU PANIER</button>
-    <div id="cartDiv" style="margin-top:15px">
-        <h4>Panier : <span id="cartCount">0 article</span></h4>
-        <table id="cartTable" style="width:100%"><tr><th>Produit</th><th>Qté</th><th>Type</th><th>Total</th><th>X</th></tr></table>
-        <h3 style="text-align:right">TOTAL: <span id="totalGlobal">0</span> F</h3>
-    </div>
-    <form method="POST" id="finalForm" onsubmit="return prepareSubmit()">
+    <button onclick="addToCart()" class="btn btn-green" style="width:100%; margin-top:10px">+ AJOUTER AU PANIER</button>
+    <table id="cartTable" style="margin-top:10px"><tr><th>Produit</th><th>Qté</th><th>Type</th><th>Total</th><th>X</th></tr></table>
+    <h3 style="text-align:right">TOTAL: <span id="totalGlobal">0</span> F</h3>
+    <form method="POST" onsubmit="return prepareSubmit()">
         <input type="hidden" name="cart_json" id="cart_json">
-        <label>Client (Nom)</label><input name="client" id="client" placeholder="FL O PARC BASAR - ou laisser vide pour Comptant">
-        <label><input type="checkbox" name="credit"> Vente à crédit ?</label><br><br>
-        <button class="btn btn-blue" style="width:100%; padding:15px; font-size:18px; background:#0f172a">✅ VALIDER LA VENTE COMPLÈTE & IMPRIMER</button>
+        <label>Client</label><input name="client" placeholder="Nom client">
+        <button class="btn btn-blue" style="width:100%; padding:15px">✅ VALIDER & IMPRIMER REÇU GROUPÉ</button>
     </form>
     </div>
-    <div class="card"><h3>20 dernières ventes</h3><table><tr><th>Date</th><th>Produit</th><th>Qté</th><th>Total</th><th>Client</th><th>Imprimer</th></tr>{rows}</table></div>
 <script>
 let cart=[];
 function addToCart(){{
-    let sel=document.getElementById('prod');
-    let product=sel.value;
-    let qty=parseFloat(document.getElementById('qty').value)||1;
-    let type_v=document.getElementById('type_v').value;
-    if(!product||qty<=0){{alert('Choisis produit'); return;}}
-    let opt=sel.options[sel.selectedIndex];
-    let pu=parseInt(opt.dataset.pu); let pc=parseInt(opt.dataset.pc); let pc10=parseInt(opt.dataset.pc10);
-    let unit=pu; if(type_v=='casier') unit=pc; if(type_v=='casier10') unit=pc10;
-    let total=unit*qty;
-    cart.push({{product,qty,type_v,unit,total}});
-    renderCart();
+    let sel=document.getElementById('prod'); let product=sel.value; let qty=parseFloat(document.getElementById('qty').value)||1; let type_v=document.getElementById('type_v').value;
+    let opt=sel.options[sel.selectedIndex]; let pu=parseInt(opt.dataset.pu); let pc=parseInt(opt.dataset.pc); let pc10=parseInt(opt.dataset.pc10);
+    let unit=pu; if(type_v=='casier') unit=pc; if(type_v=='casier10') unit=pc10; let total=unit*qty;
+    cart.push({{product,qty,type_v,unit,total}}); renderCart();
 }}
 function removeItem(i){{cart.splice(i,1); renderCart();}}
 function renderCart(){{
-    let tbody=document.getElementById('cartTable');
-    let html="<tr><th>Produit</th><th>Qté</th><th>Type</th><th>Total</th><th>X</th></tr>";
-    let sum=0;
-    cart.forEach((c,i)=>{{
-        html+=`<tr><td>${{c.product}}</td><td>${{c.qty}}</td><td>${{c.type_v}}</td><td>${{c.total}}F</td><td><button type="button" onclick="removeItem(${{i}})" class="btn btn-red" style="padding:3px 8px">X</button></td></tr>`;
-        sum+=c.total;
-    }});
-    tbody.innerHTML=html;
-    document.getElementById('totalGlobal').innerText=sum;
-    document.getElementById('cartCount').innerText=cart.length+" article(s)";
+    let html="<tr><th>Produit</th><th>Qté</th><th>Type</th><th>Total</th><th>X</th></tr>"; let sum=0;
+    cart.forEach((c,i)=>{{html+=`<tr><td>${{c.product}}</td><td>${{c.qty}}</td><td>${{c.type_v}}</td><td>${{c.total}}F</td><td><button type="button" onclick="removeItem(${{i}})" class="btn btn-red">X</button></td></tr>`; sum+=c.total;}});
+    document.getElementById('cartTable').innerHTML=html; document.getElementById('totalGlobal').innerText=sum;
 }}
-function prepareSubmit(){{
-    if(cart.length==0){{alert('Panier vide !'); return false;}}
-    document.getElementById('cart_json').value=JSON.stringify(cart);
-    return true;
-}}
+function prepareSubmit(){{if(cart.length==0){{alert('Panier vide'); return false;}} document.getElementById('cart_json').value=JSON.stringify(cart); return true;}}
 </script>
     """, session['name'])
 
-# ... le reste (stock, debts, products, tickets) garde le même code que j'ai mis dans le fichier
-# Pour que ça rentre dans WhatsApp je t'ai mis la partie la plus importante
-# Le fichier complet est dans /mnt/data/app.py
+@app.route('/ticket/<int:sid>')
+def ticket(sid):
+    if 'user' not in session: return redirect('/login')
+    db=get_db(); s=db.execute('SELECT * FROM sales WHERE id=?',[sid]).fetchone(); db.close()
+    if not s: return "Ticket introuvable"
+    return render_template_string(f"""
+    <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>body{{font-family:monospace; max-width:350px; margin:10px auto; background:white; padding:15px; border:1px dashed black}}
+    .btn{{padding:12px; width:100%; background:black; color:white; border:none; border-radius:6px; margin-top:8px}} @media print{{.no-print{{display:none}}}}</style></head><body>
+    <h2 style="text-align:center">BERLI DISTRIBUTION</h2><div style="text-align:center">Hedzranawoé - Lomé</div><hr>
+    <div>Reçu N°: {s['id']:05d}<br>Date: {s['date']}<br>Vendeur: {s['seller']}<br>Client: {s['client'] or 'Comptant'}</div><hr>
+    <div>Produit: {s['product']}<br>Qté: {s['qty']} ({s['type']})<br>PU: {s['pu_final']}F<br><b>TOTAL: {s['total']}F</b></div><hr>
+    <button onclick="window.print()" class="btn no-print">🖨️ IMPRIMER</button>
+    <a href="/sales" class="no-print">← Retour</a></body></html>
+    """)
+
+@app.route('/ticket_multi/<ids>')
+def ticket_multi(ids):
+    if 'user' not in session: return redirect('/login')
+    id_list=[int(x) for x in ids.split(',') if x.isdigit()]
+    db=get_db(); placeholders=','.join('?'*len(id_list))
+    sales=db.execute(f'SELECT * FROM sales WHERE id IN ({placeholders})', id_list).fetchall(); db.close()
+    total=sum([s['total'] for s in sales]); date=sales[0]['date']; seller=sales[0]['seller']; client=sales[0]['client'] or 'Comptant'
+    rows="".join([f"<tr><td>{s['product']}</td><td>{s['qty']}</td><td>{s['pu_final']}F</td><td>{s['total']}F</td></tr>" for s in sales])
+    return render_template_string(f"""<html><head><meta charset="utf-8"></head><body style="font-family:monospace; max-width:400px; margin:auto; border:1px dashed black; padding:15px">
+    <h2 style="text-align:center">REÇU GROUPÉ</h2><hr><div>Date: {date}<br>Vendeur: {seller}<br>Client: {client}</div><hr>
+    <table style="width:100%"><tr><th>Prod</th><th>Qté</th><th>PU</th><th>Total</th></tr>{rows}
+    <tr><td colspan="3" style="text-align:right; border-top:2px dashed black"><b>TOTAL</b></td><td style="border-top:2px dashed black"><b>{total}F</b></td></tr></table><hr>
+    <div style="text-align:center"><b>TOTAL: {total} F CFA</b></div>
+    <button onclick="window.print()" style="width:100%; padding:12px; background:black; color:white">🖨️ IMPRIMER GROUPÉ</button>
+    <a href="/sales">← Nouvelle Vente</a></body></html>""")
+
+@app.route('/products', methods=['GET','POST'])
+def manage_products():
+    if 'user' not in session: return redirect('/login')
+    db=get_db()
+    if request.method=='POST':
+        name=request.form.get('name','').strip().upper(); pu=int(request.form.get('pu') or 0); pc=int(request.form.get('pc') or 0)
+        pc10=int(request.form.get('pc10') or pc); cost=int(request.form.get('cost') or 0); nb=int(request.form.get('nb') or 24); stock=float(request.form.get('stock') or 0)
+        try: db.execute('INSERT INTO products (name, pu, pc, pc10, cost_pc, nb, stock) VALUES (?,?,?,?,?,?,?)',[name, pu, pc, pc10, cost, nb, stock])
+        except: db.execute('UPDATE products SET pu=?, pc=?, pc10=?, cost_pc=?, nb=?, stock=? WHERE name=?',[pu, pc, pc10, cost, nb, stock, name])
+        db.commit(); db.close(); return redirect('/products')
+    prods=db.execute('SELECT * FROM products ORDER BY name').fetchall(); db.close()
+    rows="".join([f"<tr><td>{p['name']}</td><td>{p['pu']}F</td><td>{p['pc']}F</td><td>{p['stock']}</td></tr>" for p in prods])
+    return render(f"""
+    <h2>📦 Gestion Articles</h2><a href="/" class="btn">← Dashboard</a>
+    <div class="card"><form method="POST"><input name="name" placeholder="NOM MAJUSCULE" required>
+    <div style="display:flex; gap:5px"><input name="pu" type="number" placeholder="PU"><input name="pc" type="number" placeholder="PC"><input name="pc10" type="number" placeholder="PC10"></div>
+    <div style="display:flex; gap:5px"><input name="cost" type="number" placeholder="Cout"><input name="nb" type="number" value="24"><input name="stock" type="number" step="0.5" value="0"></div>
+    <button class="btn btn-green" style="width:100%">Ajouter Article</button></form></div>
+    <div class="card"><table><tr><th>Nom</th><th>PU</th><th>PC</th><th>Stock</th></tr>{rows}</table></div>
+    """, session['name'])
+
+@app.route('/debts')
+def debts():
+    if 'user' not in session: return redirect('/login')
+    db=get_db(); ds=db.execute('SELECT * FROM debts ORDER BY id DESC').fetchall(); db.close()
+    rows="".join([f"<tr><td>{d['client']}</td><td>{d['total']}F</td><td>{d['remaining']}F</td></tr>" for d in ds])
+    return render(f"<h2>Dettes</h2><a href='/' class='btn'>← Dashboard</a><div class='card'><table><tr><th>Client</th><th>Total</th><th>Reste</th></tr>{rows}</table></div>", session['name'])
 
 if __name__ == '__main__':
-    port=int(os.environ.get("PORT",5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT",5000)))
