@@ -169,8 +169,7 @@ def movements():
     db=get_db(); moves=db.execute('SELECT * FROM movements ORDER BY id DESC LIMIT 100').fetchall(); db.close()
     rows="".join([f"<tr><td>{m['date']}</td><td>{m['product']}</td><td>{m['type']}</td><td>{m['qty']:+}</td><td>{m['before']}→{m['after']}</td><td>{m['reason']}</td></tr>" for m in moves])
     return render(f"""<h2>📈 Mouvements</h2><a href="/" class="btn">← Dashboard</a><div class="card"><table><tr><th>Date</th><th>Produit</th><th>Type</th><th>Qté</th><th>Avant→Après</th><th>Raison</th></tr>{rows if rows else '<tr><td colspan=6>Aucun</td></tr>'}</table></div>""", session['name'])
-
-@app.route('/sales', methods=['GET','POST'])
+    @app.route('/sales', methods=['GET','POST'])
 def sales():
     if 'user' not in session: return redirect('/login')
     db=get_db(); prods=db.execute('SELECT * FROM products ORDER BY name').fetchall()
