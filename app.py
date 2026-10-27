@@ -7,9 +7,9 @@ app.secret_key = 'berli-2026-final-complet'
 DB = 'berli.db'
 
 USERS = {
-    'patron': {'pass': 'berli2024', 'role': 'patron', 'name': 'ULRICH'},
-    'caisse': {'pass': 'caisse123', 'role': 'caissier', 'name': 'CAISSE'},
-    'stock': {'pass': 'stock123', 'role': 'stock', 'name': 'STOCK'}
+    'patron': 'berli2024',   # Toi Ulrich - accès total
+    'gerant': 'gerant2024',  # Gérant - peut tout sauf supprimer
+    'caissier': 'caisse2024' # Caissier - peut seulement vendre
 }
 
 def get_db():
