@@ -4,7 +4,11 @@ from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'berli-2026-final-complet'
-DB = 'berli.db'
+# Pour que les données ne s'effacent plus sur Render
+if os.path.exists('/data'):
+    DB = '/data/berli.db'  # En ligne : persistant
+else:
+    DB = 'berli.db'  # Sur ton Dell : local
 
 USERS = {
     'patron': {'pass': 'berli2024', 'name': 'Patron Ulrich'},
